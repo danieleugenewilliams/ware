@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WARE Framework Analysis</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { padding-top: 20px; }
+        .header { margin-bottom: 40px; }
+        .container { max-width: 800px; }
+        .results { margin-top: 20px; }
+        .spinner-border { display: inline-block; margin-right: 10px; }
+        .score-box { border: 2px solid #007bff; padding: 15px; margin-top: 20px; border-radius: 10px; text-align: center; }
+        .score-title { font-weight: bold; font-size: 1.2em; }
+        .score-value { font-size: 1.5em; color: #007bff; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header text-center">
+            <h1>WARE Framework Analysis</h1>
+            <p>Upload or paste a job description below to get an analysis of automation resilience.</p>
+        </div>
+        <form id="jobDescriptionForm">
+            <div class="form-group">
+                <label for="jobDescription">Paste Job Description Here:</label>
+                <textarea class="form-control" id="jobDescription" rows="10" maxlength="16000" required></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary">Analyze Job Description</button>
+        </form>
+        <div class="row" />
+        <div class="row">
+            <div class="col-xs-6 col-md-4" id="preliminaryScoreBox">
+                <div class="score-title" id="preliminaryScoreTitle"></div>
+                <div class="score-value" id="preliminaryScore"></div>
+            </div>
+            <div class="col-xs-6 col-md-4" id="finalScoreBox">
+                <div class="score-title" id="finalScoreTitle"></div>
+                <div class="score-value" id="finalScore"></div>
+            </div>
+            <div class="col-xs-6 col-md-4" id="resilienceLevelBox">
+                <div class="score-title" id="resilienceLevelTitle"></div>
+                <div class="score-value" id="resilienceLevel"></div>
+            </div>
+        </div>
+        <div id="results" class="results"></div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script>
+
+        // Normalize Scores (Ensure 0–100 Range)
+        function normalizeScore(score) {
+            return Math.min(Math.max(score, 0), 100);
+        }
+            
+        // Calculate Resilience Level
+        function calculateResilienceLevel(finalScore) {
+
+            // Ensure the score is a valid number
+            if (isNaN(finalScore)) {
+                console.error("Invalid score passed to calculateResilienceLevel:", finalScore);
+                return { label: "Invalid Score", color: "#6c757d" }; // Default to gray for invalid scores
+            }
+
+            // Determine the resilience level based on the score
+            /*
+            Range	Level	                Designation	        Description
+            90–100	Highly Resilient	    Human-Centered	    The job is deeply rooted in human qualities like creativity, empathy, and decision-making, with minimal automation risk.
+            75–89	Resilient	            Tech-Integrated	    The job balances human-centered tasks with technology integration, making it resilient but adaptable to automation tools.
+            50–74	Moderately Resilient	Hybrid Potential	A mix of tasks: some are resistant to automation while others are routine and can be automated with emerging technologies.
+            25–49	Vulnerable	            Automation-Prone	The job includes significant portions of repetitive or predictable tasks that are highly automatable with current tools.
+            0–24	Highly Vulnerable	    Automation-Ready	The job is heavily reliant on routine, repetitive, or predictable tasks, making it highly susceptible to automation.
+            */
+            if (finalScore >= 90) {
+                return { label: "Human-Centered - Highly Resilient", color: "#28a745" }; // Bright Green
+            } else if (finalScore >= 75) {
+                return { label: "Tech-Integrated - Resilient", color: "#85c1e9" }; // Light Green
+            } else if (finalScore >= 50) {
+                return { label: "Hybrid Potential - Moderately Resilient", color: "#f4d03f" }; // Yellow
+            } else if (finalScore >= 25) {
+                return { label: "Automation-Prone - Vulnerable", color: "#e67e22" }; // Orange
+            } else {
+                return { label: "Automation-Ready - Highly Vulnerable", color: "#e74c3c" }; // Red
+            }
+        }
+
+        $(document).ready(function() {
+            $('#jobDescriptionForm').on('submit', function(e) {
+                e.preventDefault();
+                var jobDescription = $('#jobDescription').val().trim();
+                
+                if (jobDescription.length < 20) {
+                    $('#results').html('<div class="alert alert-warning">Please provide a more detailed job description for analysis.</div>');
+                    return;
+                }
+                
+                $('#results').html('<div class="spinner-border text-primary" role="status"><span class="sr-only">Loading...</span></div><span>Analyzing...</span>');
+
+                // Use OpenAI API for analysis
+                $.ajax({
+                    url: 'http://localhost:1234/v1/chat/completions',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    dataType: 'json',
+                    data: JSON.stringify({
+                        model: 'qwen2.5-coder-14b-instruct',
+                        messages: [
+                            {
+                                role: 'user',
+                                content: `Analyze the following job description: ${jobDescription}`
+                            }
+                        ],
+                        max_tokens: 1500
+                    }),                 
+                    success: function(response) {
+                        try {
+                            // Extract and clean the response content
+                            var rawResponse = response.choices[0].message.content;
+                            var cleanResponse = rawResponse
+                                .replace(/```json/g, '')  // Remove starting code block
+                                .replace(/```/g, '')      // Remove ending code block
+                                .replace(/\n/g, '');      // Remove all line breaks
+                    
+                            // Parse the cleaned JSON
+                            var parsedResponse = JSON.parse(cleanResponse);
+                    
+                            // Normalize scores
+                            //var preliminaryScore = normalizeScore(parsedResponse.preliminary_score || 0);
+                            //var finalScore = normalizeScore(parsedResponse.final_score || 0);
+                            var preliminaryScore = normalizeScore(parsedResponse.preliminary_score);
+                            var finalScore = normalizeScore(parsedResponse.final_score);
+
+                            // Resilience Level
+                            console.log("Final Score before passing to calculateResilienceLevel:", finalScore);
+                            var resilienceLevel = calculateResilienceLevel(finalScore);
+                    
+                            // Tasks and Recommendations
+                            var tasks = parsedResponse.tasks
+                                ? parsedResponse.tasks.map(task => `<li>${task.task} (Category: ${task.category}, Weight: ${task.weight})</li>`).join('')
+                                : 'N/A';
+                            var recommendations = parsedResponse.recommendations
+                                ? parsedResponse.recommendations.map(rec => `<li>${rec}</li>`).join('')
+                                : 'N/A';
+
+                            // Clear results
+                            $('#results').html(''); // Clear the "Analyzing..." spinner
+                          
+                            // Update UI elements
+                            
+                            $('#preliminaryScoreTitle').text("Preliminary Score");
+                            $('#preliminaryScore').text(preliminaryScore);
+                            $('#finalScoreTitle').text("Final Score");
+                            $('#finalScore').text(finalScore);
+                            $('#resilienceLevelTitle').text("Automation Resilience");
+                            $('#resilienceLevel').text(resilienceLevel.label).css('color', resilienceLevel.color);
+                    
+                            // Construct the task and recommendation sections
+                            var resultHtml = `
+                                <h4>Task Analysis</h4>
+                                <ul>${tasks}</ul>
+                                <h4>Human-Centered Recommendations</h4>
+                                <ul>${recommendations}</ul>
+                            `;
+                            $('#results').append(resultHtml);
+                        } catch (error) {
+                            $('#results').html('<div class="alert alert-danger">An error occurred while processing the response. Please try again later.</div>');
+                        }
+                    },
+
+                    error: function(xhr) {
+                        let errorMessage;
+                        if (xhr.status >= 500) {
+                            errorMessage = 'A server error occurred. Please try again later.';
+                        } else if (xhr.status >= 400) {
+                            errorMessage = 'A client error occurred. Please check your input and try again.';
+                        } else {
+                            errorMessage = 'An unexpected error occurred. Please try again.';
+                        }
+                        $('#results').html(`<div class="alert alert-danger">${errorMessage}</div>`);
+                    }
+                })
+            });
+        });
+    </script>
+</body>
+</html>
